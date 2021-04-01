@@ -304,6 +304,26 @@ def aspect_ratio(boxes, aspect_ratio):
     boxes_ar[:, 2::4] = aspect_ratio * boxes[:, 2::4]
     return boxes_ar
 
+def weak_neigber(top_dets, all_dets, thresh=0.4, coef=0.6):
+    top_dets_out = top_dets.copy()
+    top_boxes = top_dets[:, :4]
+    all_boxes = all_dets[:, :4]
+    all_scores = all_dets[:, 4]
+    top_to_all_overlaps = bbox_overlaps(top_boxes, all_boxes)
+    inds_weak=[]
+    for k in range(top_dets_out.shape[0]):
+        inds_to_vote = np.where(top_to_all_overlaps[k] >= thresh)[0]
+        boxes_to_vote = all_boxes[inds_to_vote, :]
+        ws = all_scores[inds_to_vote]
+        if 0:
+            iou = top_to_all_overlaps[k, inds_to_vote]
+            top_dets_out[k, :4] = np.average(boxes_to_vote, axis=0, weights=ws * iou ** 2)
+        inds_weak+=inds_to_vote[ws<0.55*all_scores[k]].tolist()
+    idx=np.unique(inds_weak)
+    if len(idx)>0:
+        top_dets[idx,4]*=coef
+    return  top_dets
+
 
 def box_voting(top_dets, all_dets, thresh, scoring_method='ID', beta=1.0, mask=None):
     """Apply bounding-box voting to refine `top_dets` by voting with `all_dets`.
@@ -323,9 +343,22 @@ def box_voting(top_dets, all_dets, thresh, scoring_method='ID', beta=1.0, mask=N
         inds_to_vote = np.where(top_to_all_overlaps[k] >= thresh)[0]
         boxes_to_vote = all_boxes[inds_to_vote, :]
         ws = all_scores[inds_to_vote]
-        if scoring_method=='IOU_WAVG':
+        if scoring_method=='IOU_UNIQ':
+            ids = all_dets[inds_to_vote,-1]
+        if scoring_method=='IOU_WAVG' or scoring_method=='IOU_UNIQ':
             iou = top_to_all_overlaps[k, inds_to_vote]
-            top_dets_out[k, :4] = np.average(boxes_to_vote, axis=0, weights=ws * iou ** 2)
+            coef = ws * iou
+            a=np.average(boxes_to_vote, axis=0, weights=coef)
+            top_dets_out[k, :4] = a
+            # b=boxes_to_vote*np.repeat(coef[:,np.newaxis],4,axis=1)/coef.sum(axis=0)
+            # # c=(boxes_to_vote*np.repeat(coef[:,np.newaxis],4,axis=1)/coef.sum(axis=0)).sum(axis=0)
+            # c=b.sum(axis=0)
+            # # c=b.shape[0]*np.median(b,axis=0)
+            # top_dets_out[k, :4]=c
+            # d=(np.std(b,axis=0)/c).mean()
+            # if np.isnan(d):
+            #     d=0
+            # # print(b.shape[0],d)
             if not mask is None:
                 masks_out[:,:,k]=np.average(mask[:,:,inds_to_vote], axis=2, weights=ws * iou ** 2)
             # top_dets_out[k, :4] = np.average(boxes_to_vote, axis=0, weights=ws)
@@ -349,6 +382,7 @@ def box_voting(top_dets, all_dets, thresh, scoring_method='ID', beta=1.0, mask=N
             top_dets_out[k, 4] = P_avg
         elif scoring_method == 'AVG':
             # Combine new probs from overlapping boxes
+            wss=ws
             top_dets_out[k, 4] = ws.mean()
         elif scoring_method == 'WAVG':
             # Combine new probs from overlapping boxes
@@ -358,7 +392,14 @@ def box_voting(top_dets, all_dets, thresh, scoring_method='ID', beta=1.0, mask=N
             #     zz=0
         elif scoring_method == 'IOU_WAVG':
             # Combine new probs from overlapping boxes
+            #top_dets_out[k, 4] = 2*(max(0,0.5-d))*min(1.0, (np.sqrt((iou * (ws ** 2)).sum())) / beta)
             top_dets_out[k, 4] = min(1.0, (np.sqrt((iou * (ws ** 2)).sum())) / beta)
+        elif scoring_method == 'IOU_UNIQ':
+            # Combine new probs from overlapping boxes
+            #top_dets_out[k, 4] = 2*(max(0,0.5-d))*min(1.0, (np.sqrt((iou * (ws ** 2)).sum())) / beta)
+            k_uniq=len(np.unique(ids))/beta
+            # print(np.unique(ids),k_uniq,np.sqrt(np.sqrt((iou * (ws ** 2)).sum())) * k_uniq)
+            top_dets_out[k, 4] = min(1.0, np.sqrt(np.sqrt((iou * (ws ** 2)).sum())) * k_uniq)
         elif scoring_method == 'IOU_AVG':
             P = ws
             ws = top_to_all_overlaps[k, inds_to_vote]
@@ -369,6 +410,8 @@ def box_voting(top_dets, all_dets, thresh, scoring_method='ID', beta=1.0, mask=N
             top_dets_out[k, 4] = P_avg
         elif scoring_method == 'QUASI_SUM':
             top_dets_out[k, 4] = ws.sum() / float(len(ws))**beta
+        elif scoring_method == 'SUM':
+            top_dets_out[k, 4] = ws.sum() 
         else:
             raise NotImplementedError(
                 'Unknown scoring method {}'.format(scoring_method)
