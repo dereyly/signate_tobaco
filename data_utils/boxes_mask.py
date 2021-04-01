@@ -387,18 +387,13 @@ def box_voting(top_dets, all_dets, thresh, scoring_method='ID', beta=1.0, mask=N
         elif scoring_method == 'WAVG':
             # Combine new probs from overlapping boxes
             top_dets_out[k, 4] = min(1.0, (np.sqrt((ws ** 2).sum())) / beta)
-
-            # if (top_dets_out[k, 4])>1:
-            #     zz=0
         elif scoring_method == 'IOU_WAVG':
             # Combine new probs from overlapping boxes
-            #top_dets_out[k, 4] = 2*(max(0,0.5-d))*min(1.0, (np.sqrt((iou * (ws ** 2)).sum())) / beta)
+            
             top_dets_out[k, 4] = min(1.0, (np.sqrt((iou * (ws ** 2)).sum())) / beta)
         elif scoring_method == 'IOU_UNIQ':
-            # Combine new probs from overlapping boxes
-            #top_dets_out[k, 4] = 2*(max(0,0.5-d))*min(1.0, (np.sqrt((iou * (ws ** 2)).sum())) / beta)
+            # Combine score, IOU and uniq bbox
             k_uniq=len(np.unique(ids))/beta
-            # print(np.unique(ids),k_uniq,np.sqrt(np.sqrt((iou * (ws ** 2)).sum())) * k_uniq)
             top_dets_out[k, 4] = min(1.0, np.sqrt(np.sqrt((iou * (ws ** 2)).sum())) * k_uniq)
         elif scoring_method == 'IOU_AVG':
             P = ws
